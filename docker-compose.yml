@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: eventify_user
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: eventify_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U eventify_user -d eventify_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Migration service: runs once and exits
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    environment:
+      DATABASE_URL: postgresql://eventify_user:password123@postgres:5432/eventify_db
+    command: npx prisma migrate deploy
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://eventify_user:password123@postgres:5432/eventify_db
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: supersecretchangeinproduction
+      # Fill these with real values if needed
+      # Manual UPI
+      NEXT_PUBLIC_UPI_VPA: eventify@upi
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

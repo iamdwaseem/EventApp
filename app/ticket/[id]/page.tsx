@@ -1,95 +1,33 @@
-"use client"
-
-import type React from "react"
-
-import { useEffect, useState } from "react"
-import { useParams } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { redirect } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import QRCode from "qrcode.react"
+import { prisma } from "@/lib/prisma"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/app/api/auth/[...nextauth]/route"
+import { TicketGiftForm } from "@/components/ticket-gift-form"
 
-export default function TicketPage() {
-  const params = useParams()
-  const [ticket, setTicket] = useState<any>(null)
-  const [event, setEvent] = useState<any>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [giftEmail, setGiftEmail] = useState("")
-  const [isGifting, setIsGifting] = useState(false)
-  const [giftMessage, setGiftMessage] = useState("")
+export default async function TicketPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const session = await getServerSession(authOptions)
 
-  useEffect(() => {
-    const fetchTicket = async () => {
-      const supabase = createClient()
-
-      const { data: ticketData } = await supabase
-        .from("tickets")
-        .select(
-          `
-          id,
-          qr_code,
-          status,
-          events:event_id (
-            id,
-            title,
-            date,
-            location
-          )
-        `,
-        )
-        .eq("id", params.id)
-        .single()
-
-      if (ticketData) {
-        setTicket(ticketData)
-        setEvent(ticketData.events)
-      }
-
-      setIsLoading(false)
-    }
-
-    fetchTicket()
-  }, [params.id])
-
-  const handleGiftTicket = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsGifting(true)
-
-    try {
-      const response = await fetch("/api/tickets/gift", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ticketId: ticket.id,
-          recipientEmail: giftEmail,
-          message: giftMessage,
-        }),
-      })
-
-      if (response.ok) {
-        setGiftMessage("Ticket gifted successfully!")
-        setGiftEmail("")
-        setGiftMessage("")
-        setTimeout(() => setGiftMessage(""), 3000)
-      } else {
-        setGiftMessage("Failed to gift ticket")
-      }
-    } catch (error) {
-      console.error("[v0] Error gifting ticket:", error)
-      setGiftMessage("Error gifting ticket")
-    } finally {
-      setIsGifting(false)
-    }
+  if (!session?.user) {
+    redirect("/login")
   }
 
-  if (isLoading) {
-    return <div className="text-center py-12">Loading...</div>
-  }
+  const ticket = await prisma.ticket.findUnique({
+    where: { id },
+    include: {
+      event: true
+    }
+  })
 
-  if (!ticket || !event) {
+  if (!ticket) {
     return <div className="text-center py-12">Ticket not found</div>
+  }
+
+  // Security check: only show if user owns ticket (or is admin?)
+  // Assuming strict ownership for now
+  if (ticket.userId !== session.user.id && !session.user.isAdmin) {
+    return <div className="text-center py-12">Unauthorized</div>
   }
 
   return (
@@ -97,13 +35,27 @@ export default function TicketPage() {
       <div className="w-full max-w-2xl space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>{event.title}</CardTitle>
-            <CardDescription>{new Date(event.date).toLocaleDateString()}</CardDescription>
+            <CardTitle>{ticket.event.title}</CardTitle>
+            <CardDescription>{ticket.event.date.toLocaleDateString()}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex justify-center">
               <div className="bg-white p-4 rounded-lg">
-                <QRCode value={ticket.qr_code} size={256} />
+                {/* 
+                  QR Code Display
+                  If qrCode is a data URL (image), show it.
+                  If it's just a string ID, we might need a client component to render it as QR?
+                  But the backend refs say we store base64 image now (from new capture-order logic).
+                  So <img> tag should work for base64.
+                */}
+                {ticket.qrCode && ticket.qrCode.startsWith("data:image") ? (
+                  <img src={ticket.qrCode} alt="Ticket QR" className="w-64 h-64" />
+                ) : (
+                  // Fallback if it's text (legacy or error)
+                  <div className="w-64 h-64 flex items-center justify-center border">
+                    <p className="text-xs break-all">{ticket.qrCode}</p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -113,15 +65,10 @@ export default function TicketPage() {
                 <p className="font-mono text-sm font-semibold">{ticket.id}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">QR Code</p>
-                <p className="font-mono text-sm font-semibold">{ticket.qr_code}</p>
-              </div>
-              <div>
                 <p className="text-sm text-muted-foreground">Status</p>
                 <p
-                  className={`font-semibold capitalize ${
-                    ticket.status === "redeemed" ? "text-destructive" : "text-green-600"
-                  }`}
+                  className={`font-semibold capitalize ${ticket.status === "redeemed" ? "text-destructive" : "text-green-600"
+                    }`}
                 >
                   {ticket.status}
                 </p>
@@ -131,31 +78,7 @@ export default function TicketPage() {
         </Card>
 
         {ticket.status !== "redeemed" && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Gift This Ticket</CardTitle>
-              <CardDescription>Share this ticket with someone else</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleGiftTicket} className="space-y-4">
-                <div>
-                  <Label htmlFor="giftEmail">Recipient Email</Label>
-                  <Input
-                    id="giftEmail"
-                    type="email"
-                    placeholder="recipient@example.com"
-                    value={giftEmail}
-                    onChange={(e) => setGiftEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isGifting}>
-                  {isGifting ? "Gifting..." : "Gift Ticket"}
-                </Button>
-                {giftMessage && <p className="text-sm text-center text-green-600">{giftMessage}</p>}
-              </form>
-            </CardContent>
-          </Card>
+          <TicketGiftForm ticketId={ticket.id} />
         )}
       </div>
     </div>

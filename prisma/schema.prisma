@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  fullName  String?
+  isAdmin   Boolean  @default(false)
+  tickets   Ticket[]
+  createdAt DateTime @default(now())
+}
+
+model Event {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  date        DateTime
+  location    String
+  capacity    Int
+  price       Float
+  createdBy   String
+  tickets     Ticket[]
+  redeemCodes RedeemCode[]
+  createdAt   DateTime @default(now())
+}
+
+model Ticket {
+  id          String   @id @default(uuid())
+  event       Event    @relation(fields: [eventId], references: [id])
+  eventId     String
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+  qrCode      String
+  status      String   @default("active")
+  purchasedAt DateTime @default(now())
+}
+
+model RedeemCode {
+  id        String  @id @default(uuid())
+  code      String  @unique
+  event     Event   @relation(fields: [eventId], references: [id])
+  eventId   String
+  isUsed    Boolean @default(false)
+  createdBy String
+}

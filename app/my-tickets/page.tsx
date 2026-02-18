@@ -1,10 +1,9 @@
 "use client"
 
 import type React from "react"
-
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { useSession } from "next-auth/react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,60 +11,37 @@ import { Label } from "@/components/ui/label"
 import Link from "next/link"
 
 export default function MyTicketsPage() {
+  const { data: session, status } = useSession()
+  const router = useRouter()
+
   const [tickets, setTickets] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [redeemCode, setRedeemCode] = useState("")
   const [isRedeeming, setIsRedeeming] = useState(false)
   const [redeemMessage, setRedeemMessage] = useState("")
-  const router = useRouter()
 
   useEffect(() => {
+    if (status === "loading") return
+    if (status === "unauthenticated") {
+      router.push("/login")
+      return
+    }
+
     const fetchTickets = async () => {
       try {
-        const supabase = createClient()
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-
-        if (!user) {
-          router.push("/login")
-          return
+        const res = await fetch("/api/tickets/my")
+        if (res.ok) {
+          setTickets(await res.json())
         }
-
-        const { data: ticketsData, error } = await supabase
-          .from("tickets")
-          .select(
-            `
-          id,
-          qr_code,
-          status,
-          purchased_at,
-          events:event_id (
-            id,
-            title,
-            date,
-            location
-          )
-        `,
-          )
-          .eq("user_id", user.id)
-          .order("purchased_at", { ascending: false })
-
-        if (error) {
-          console.error("[v0] Error fetching tickets:", error)
-        }
-
-        setTickets(ticketsData || [])
       } catch (error) {
-        console.error("[v0] Error in fetchTickets:", error)
+        console.error("Error fetching tickets:", error)
       } finally {
         setIsLoading(false)
       }
     }
 
     fetchTickets()
-  }, [router])
+  }, [status, router])
 
   const handleRedeemCode = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -85,45 +61,20 @@ export default function MyTicketsPage() {
         setRedeemMessage("Code redeemed successfully! Ticket added to your collection.")
         setRedeemCode("")
         // Refresh tickets
-        const supabase = createClient()
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-
-        if (user) {
-          const { data: ticketsData } = await supabase
-            .from("tickets")
-            .select(
-              `
-            id,
-            qr_code,
-            status,
-            purchased_at,
-            events:event_id (
-              id,
-              title,
-              date,
-              location
-            )
-          `,
-            )
-            .eq("user_id", user.id)
-            .order("purchased_at", { ascending: false })
-
-          setTickets(ticketsData || [])
-        }
+        const res = await fetch("/api/tickets/my")
+        if (res.ok) setTickets(await res.json())
       } else {
         setRedeemMessage(data.error || "Failed to redeem code")
       }
     } catch (error) {
-      console.error("[v0] Error redeeming code:", error)
+      console.error("Error redeeming code:", error)
       setRedeemMessage("Error redeeming code")
     } finally {
       setIsRedeeming(false)
     }
   }
 
-  if (isLoading) {
+  if (status === "loading" || isLoading) {
     return <div className="text-center py-12">Loading your tickets...</div>
   }
 
@@ -153,9 +104,7 @@ export default function MyTicketsPage() {
                 {isRedeeming ? "Redeeming..." : "Redeem Code"}
               </Button>
               {redeemMessage && (
-                <p
-                  className={`text-sm ${redeemMessage.includes("successfully") ? "text-green-600" : "text-destructive"}`}
-                >
+                <p className={`text-sm ${redeemMessage.includes("successfully") ? "text-green-600" : "text-destructive"}`}>
                   {redeemMessage}
                 </p>
               )}
@@ -177,8 +126,8 @@ export default function MyTicketsPage() {
             {tickets.map((ticket: any) => (
               <Card key={ticket.id}>
                 <CardHeader>
-                  <CardTitle>{ticket.events?.title}</CardTitle>
-                  <CardDescription>{new Date(ticket.events?.date).toLocaleDateString()}</CardDescription>
+                  <CardTitle>{ticket.event?.title}</CardTitle>
+                  <CardDescription>{new Date(ticket.event?.date).toLocaleDateString()}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
@@ -188,7 +137,12 @@ export default function MyTicketsPage() {
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">QR Code</p>
-                      <p className="font-mono text-sm">{ticket.qr_code}</p>
+                      {/* Only display if it's a short string, otherwise it's a base64 image */}
+                      {ticket.qrCode && ticket.qrCode.startsWith("data:image") ? (
+                        <img src={ticket.qrCode} alt="QR Code" className="w-24 h-24" />
+                      ) : (
+                        <p className="font-mono text-sm">{ticket.qrCode}</p>
+                      )}
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Status</p>
@@ -196,7 +150,7 @@ export default function MyTicketsPage() {
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Location</p>
-                      <p className="font-semibold">{ticket.events?.location}</p>
+                      <p className="font-semibold">{ticket.event?.location}</p>
                     </div>
                   </div>
                   <Link href={`/ticket/${ticket.id}`} className="w-full">

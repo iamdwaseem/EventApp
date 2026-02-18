@@ -1,25 +1,25 @@
-import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
-import { PayPalButton } from "@/components/paypal-button"
+import { ManualUPICheckout } from "@/components/manual-upi-checkout"
+import { prisma } from "@/lib/prisma"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/app/api/auth/[...nextauth]/route"
 
 export default async function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const supabase = await createClient()
+  const session = await getServerSession(authOptions)
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
+  if (!session?.user) {
     redirect("/login")
   }
 
-  const { data: event, error } = await supabase.from("events").select("*").eq("id", id).single()
+  const event = await prisma.event.findUnique({
+    where: { id }
+  })
 
-  if (error || !event) {
+  if (!event) {
     return <div className="text-center py-12">Event not found</div>
   }
 
@@ -35,7 +35,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
         <Card>
           <CardHeader>
             <CardTitle className="text-3xl">{event.title}</CardTitle>
-            <CardDescription>{new Date(event.date).toLocaleDateString()}</CardDescription>
+            <CardDescription>{event.date.toLocaleDateString()}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div>
@@ -54,20 +54,15 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Price</p>
-                <p className="font-semibold text-primary text-lg">${event.price}</p>
+                <p className="font-semibold text-primary text-lg">₹{event.price}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Date</p>
-                <p className="font-semibold">{new Date(event.date).toLocaleDateString()}</p>
+                <p className="font-semibold">{event.date.toLocaleDateString()}</p>
               </div>
             </div>
 
-            <PayPalButton
-              eventId={id}
-              eventTitle={event.title}
-              price={event.price}
-              onError={(error) => console.error("[v0] Payment error:", error)}
-            />
+            <ManualUPICheckout event={event} />
           </CardContent>
         </Card>
       </div>

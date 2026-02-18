@@ -1,51 +1,14 @@
-"use client"
-
-import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { prisma } from "@/lib/prisma"
 
-export default function EventsPage() {
-  const [events, setEvents] = useState<any[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const router = useRouter()
+export const dynamic = "force-dynamic"
 
-  useEffect(() => {
-    const fetchEvents = async () => {
-      try {
-        const supabase = createClient()
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-
-        if (!user) {
-          router.push("/login")
-          return
-        }
-
-        const { data: eventsData, error } = await supabase.from("events").select("*").order("date", { ascending: true })
-
-        if (error) {
-          console.error("[v0] Error fetching events:", error)
-        }
-
-        setEvents(eventsData || [])
-      } catch (error) {
-        console.error("[v0] Error in fetchEvents:", error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    fetchEvents()
-  }, [router])
-
-  if (isLoading) {
-    return <div className="text-center py-12">Loading events...</div>
-  }
+export default async function EventsPage() {
+  const events = await prisma.event.findMany({
+    orderBy: { date: "asc" }
+  })
 
   return (
     <div className="min-h-screen bg-muted/50">
@@ -60,7 +23,7 @@ export default function EventsPage() {
               <Card key={event.id} className="hover:shadow-lg transition flex flex-col">
                 <CardHeader>
                   <CardTitle className="line-clamp-2">{event.title}</CardTitle>
-                  <CardDescription>{new Date(event.date).toLocaleDateString()}</CardDescription>
+                  <CardDescription>{event.date.toLocaleDateString()}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col">
                   <p className="text-sm text-muted-foreground mb-4 flex-1 line-clamp-3">{event.description}</p>
@@ -71,7 +34,7 @@ export default function EventsPage() {
                     <p className="text-sm">
                       <span className="font-medium">Capacity:</span> {event.capacity} spots
                     </p>
-                    <p className="text-lg font-bold text-primary">${event.price}</p>
+                    <p className="text-lg font-bold text-primary">₹{event.price}</p>
                   </div>
                   <Link href={`/events/${event.id}`} className="w-full">
                     <Button className="w-full">View Details</Button>
